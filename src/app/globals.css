@@ -14,23 +14,22 @@ body {
 
 ::-webkit-scrollbar { display: none; }
 
-/* Animations */
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .anim-fade { animation: fade-in 0.3s ease-out; }
 
 @keyframes slide-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
-.anim-slide { animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+.anim-slide { animation: slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
 
-@keyframes card-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-.anim-card { animation: card-in 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes card-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.anim-card { animation: card-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
 
-@keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+@keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
 .anim-breathe { animation: breathe 2.5s ease-in-out infinite; }
 
-@keyframes ring-pulse { 0% { transform: scale(0.7); opacity: 0.4; } 100% { transform: scale(1.5); opacity: 0; } }
+@keyframes ring-pulse { 0% { transform: scale(0.7); opacity: 0.3; } 100% { transform: scale(1.5); opacity: 0; } }
 .anim-ring { animation: ring-pulse 2.5s ease-out infinite; }
 
-@keyframes ring-fade { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(2.5); opacity: 0; } }
+@keyframes ring-fade { 0% { transform: scale(1); opacity: 0.4; } 100% { transform: scale(2.5); opacity: 0; } }
 .anim-ring-fade { animation: ring-fade 2s ease-out infinite; }
 
 @keyframes eq { 0%, 100% { height: 3px; } 50% { height: 20px; } }
@@ -38,3 +37,6 @@ body {
 
 @keyframes dot { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 .anim-dot { animation: dot 1s ease-in-out infinite; }
+
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.anim-spin { animation: spin 1s linear infinite; }
