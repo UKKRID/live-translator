@@ -34,6 +34,8 @@ export default function Home() {
   const [translating, setTranslating] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const listeningRef = useRef(false);
+  const lastFinalRef = useRef("");
   const idRef = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -73,6 +75,7 @@ export default function Home() {
 
   const startListening = useCallback(() => {
     setError(null);
+    lastFinalRef.current = "";
     const API = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!API) {
       setError("Use Chrome or Safari for speech recognition");
@@ -89,20 +92,33 @@ export default function Home() {
         if (e.results[i].isFinal) final += t; else interim += t;
       }
       setInterimText(interim);
-      if (final) processTranscript(final);
+      if (final && final !== lastFinalRef.current) {
+        lastFinalRef.current = final;
+        processTranscript(final);
+      }
     };
     r.onerror = (e) => {
       if (e.error !== "no-speech" && e.error !== "aborted") {
         setError(`Speech error: ${e.error}`);
         setIsListening(false);
+        listeningRef.current = false;
       }
     };
-    r.onend = () => { if (isListening) try { r.start(); } catch { setIsListening(false); } };
+    r.onend = () => {
+      if (listeningRef.current) {
+        try { r.start(); } catch { setIsListening(false); listeningRef.current = false; }
+      }
+    };
     recognitionRef.current = r;
-    try { r.start(); setIsListening(true); } catch { setError("Could not start microphone"); }
-  }, [sourceLang, isListening, processTranscript]);
+    try {
+      r.start();
+      setIsListening(true);
+      listeningRef.current = true;
+    } catch { setError("Could not start microphone"); }
+  }, [sourceLang, processTranscript]);
 
   const stopListening = useCallback(() => {
+    listeningRef.current = false;
     recognitionRef.current?.stop();
     recognitionRef.current = null;
     setIsListening(false);
