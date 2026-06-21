@@ -9,7 +9,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "Live Translator",
-  description: "Real-time voice translation for mobile and web",
+  description: "Real-time voice translation",
 };
 
 export const viewport: Viewport = {
@@ -17,7 +17,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#0a0a1a",
+  themeColor: "#09090b",
 };
 
 export default function RootLayout({
@@ -27,7 +27,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${inter.variable} h-full`}>
-      <body className="min-h-full bg-[#0a0a1a] text-white font-[family-name:var(--font-inter)] antialiased">
+      <body className="min-h-full bg-[#09090b] text-white font-[family-name:var(--font-inter)] antialiased">
         {children}
       </body>
     </html>

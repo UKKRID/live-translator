@@ -24,6 +24,41 @@ interface TranslationEntry {
   timestamp: Date;
 }
 
+function MicIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" x2="12" y1="19" y2="22" />
+    </svg>
+  );
+}
+
+function StopIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <rect x="6" y="6" width="12" height="12" rx="3" />
+    </svg>
+  );
+}
+
+function SwapIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 16V4m0 0L3 8m4-4l4 4" />
+      <path d="M17 8v12m0 0l4-4m-4 4l-4-4" />
+    </svg>
+  );
+}
+
+function WaveIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <path d="M2 12h1M5 12v-2M8 12v-4M11 12v-1M14 12v-3M17 12v-2M20 12v-1M22 12h1" />
+    </svg>
+  );
+}
+
 export default function Home() {
   const [isListening, setIsListening] = useState(false);
   const [sourceLang, setSourceLang] = useState("en");
@@ -70,51 +105,30 @@ export default function Home() {
 
   const startListening = useCallback(() => {
     setError(null);
-    const SpeechRecognitionAPI =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (!SpeechRecognitionAPI) {
-      setError("Speech recognition is not supported. Please use Chrome or Safari.");
+    const API = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!API) {
+      setError("Speech recognition not supported. Use Chrome or Safari.");
       return;
     }
-
-    const recognition = new SpeechRecognitionAPI();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = sourceLang;
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let interim = "";
-      let final = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) final += transcript;
-        else interim += transcript;
+    const r = new API();
+    r.continuous = true;
+    r.interimResults = true;
+    r.lang = sourceLang;
+    r.onresult = (e: SpeechRecognitionEvent) => {
+      let interim = "", final = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) final += t; else interim += t;
       }
       setInterimText(interim);
       if (final) processTranscript(final);
     };
-
-    recognition.onerror = (event) => {
-      if (event.error !== "no-speech") {
-        setError(`Recognition error: ${event.error}`);
-        setIsListening(false);
-      }
+    r.onerror = (e) => {
+      if (e.error !== "no-speech") { setError(`Error: ${e.error}`); setIsListening(false); }
     };
-
-    recognition.onend = () => {
-      if (isListening) {
-        try { recognition.start(); } catch { setIsListening(false); }
-      }
-    };
-
-    recognitionRef.current = recognition;
-    try {
-      recognition.start();
-      setIsListening(true);
-    } catch {
-      setError("Failed to start speech recognition");
-    }
+    r.onend = () => { if (isListening) try { r.start(); } catch { setIsListening(false); } };
+    recognitionRef.current = r;
+    try { r.start(); setIsListening(true); } catch { setError("Failed to start"); }
   }, [sourceLang, isListening, processTranscript]);
 
   const stopListening = useCallback(() => {
@@ -125,8 +139,7 @@ export default function Home() {
   }, []);
 
   const toggleListening = useCallback(() => {
-    if (isListening) stopListening();
-    else startListening();
+    if (isListening) stopListening(); else startListening();
   }, [isListening, startListening, stopListening]);
 
   const swapLanguages = useCallback(() => {
@@ -148,191 +161,171 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-gradient-to-b from-[#0a0a1a] via-[#0d0d24] to-[#0a0a1a] text-white overflow-hidden">
-      {/* Ambient background */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute top-[-20%] left-[-10%] w-[60vw] h-[60vw] rounded-full bg-purple-600/8 blur-[120px]" />
-        <div className="absolute bottom-[-20%] right-[-10%] w-[50vw] h-[50vw] rounded-full bg-blue-600/8 blur-[120px]" />
-        {isListening && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80vw] h-[80vw] rounded-full bg-red-500/5 blur-[150px] animate-ambient-glow" />
-        )}
+    <div className="min-h-[100dvh] flex flex-col bg-[#09090b] text-white overflow-hidden relative">
+      {/* Ambient blobs */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+        <div className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full bg-violet-600/[0.04] blur-[100px]" />
+        <div className="absolute -bottom-32 -right-32 w-[400px] h-[400px] rounded-full bg-indigo-600/[0.04] blur-[100px]" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-rose-600/[0.03] blur-[120px] transition-opacity duration-1000" style={{ opacity: isListening ? 1 : 0 }} />
       </div>
 
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 glass-header">
-        <div className="max-w-2xl mx-auto px-5 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 flex items-center justify-center shadow-lg shadow-violet-500/20">
-              <span className="text-lg">🌐</span>
+      <header className="fixed top-0 inset-x-0 z-50 border-b border-white/[0.04]" style={{ background: "rgba(9,9,11,0.8)", backdropFilter: "blur(24px) saturate(180%)", WebkitBackdropFilter: "blur(24px) saturate(180%)" }}>
+        <div className="max-w-xl mx-auto px-5 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center shadow-lg shadow-violet-500/20">
+              <WaveIcon className="w-4 h-4 text-white" />
             </div>
-            <span className="text-lg font-bold tracking-tight">Live Translator</span>
+            <span className="text-[15px] font-semibold tracking-tight">Live Translator</span>
           </div>
           {translations.length > 0 && (
-            <button
-              onClick={clearTranslations}
-              className="px-4 py-1.5 rounded-full text-sm font-medium text-white/40 hover:text-white/70 bg-white/5 hover:bg-white/10 transition-all"
-            >
-              Clear all
+            <button onClick={clearTranslations} className="text-[13px] text-white/30 hover:text-white/60 transition-colors px-3 py-1 rounded-full hover:bg-white/5">
+              Clear
             </button>
           )}
         </div>
       </header>
 
-      {/* Main content */}
-      <main className="flex-1 flex flex-col pt-16 pb-44 relative z-10">
-        {/* Language selector */}
-        <div className="max-w-2xl mx-auto w-full px-5 py-4">
-          <div className="glass-card rounded-2xl p-3 flex items-center gap-2">
-            <button
-              onClick={() => setShowLangPicker("source")}
-              className="flex-1 rounded-xl px-4 py-3.5 flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 transition-all active:scale-[0.97]"
-            >
-              <span className="text-2xl">{sourceLangData?.flag}</span>
-              <span className="text-base font-semibold">{sourceLangData?.name}</span>
-            </button>
-
-            <button
-              onClick={swapLanguages}
-              className="w-11 h-11 flex items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-blue-500/20 hover:from-violet-500/30 hover:to-blue-500/30 border border-white/10 transition-all active:scale-90 shrink-0"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-              </svg>
-            </button>
-
-            <button
-              onClick={() => setShowLangPicker("target")}
-              className="flex-1 rounded-xl px-4 py-3.5 flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 transition-all active:scale-[0.97]"
-            >
-              <span className="text-2xl">{targetLangData?.flag}</span>
-              <span className="text-base font-semibold">{targetLangData?.name}</span>
-            </button>
-          </div>
+      {/* Language bar */}
+      <div className="fixed top-14 inset-x-0 z-40" style={{ background: "rgba(9,9,11,0.6)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" }}>
+        <div className="max-w-xl mx-auto px-5 py-3 flex items-center gap-2">
+          <button onClick={() => setShowLangPicker("source")} className="flex-1 h-11 rounded-xl flex items-center justify-center gap-2.5 bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.04] transition-all active:scale-[0.98]">
+            <span className="text-xl">{sourceLangData?.flag}</span>
+            <span className="text-sm font-medium text-white/80">{sourceLangData?.name}</span>
+          </button>
+          <button onClick={swapLanguages} className="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.04] transition-all active:scale-90">
+            <SwapIcon className="w-4 h-4 text-white/50" />
+          </button>
+          <button onClick={() => setShowLangPicker("target")} className="flex-1 h-11 rounded-xl flex items-center justify-center gap-2.5 bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.04] transition-all active:scale-[0.98]">
+            <span className="text-xl">{targetLangData?.flag}</span>
+            <span className="text-sm font-medium text-white/80">{targetLangData?.name}</span>
+          </button>
         </div>
+      </div>
 
-        {/* Translation area */}
+      {/* Content */}
+      <main className="flex-1 flex flex-col pt-[120px] pb-36 relative z-10">
         <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hide px-5">
-          <div className="max-w-2xl mx-auto space-y-3 pb-4">
+          <div className="max-w-xl mx-auto space-y-3">
+
             {/* Empty state */}
             {translations.length === 0 && !isListening && (
-              <div className="flex flex-col items-center justify-center py-20 text-white/20">
-                <div className="relative mb-8">
-                  <div className="w-28 h-28 rounded-full bg-gradient-to-br from-violet-500/10 to-blue-500/10 flex items-center justify-center border border-white/5">
-                    <svg className="w-12 h-12 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-                    </svg>
+              <div className="flex flex-col items-center justify-center py-24 select-none">
+                <div className="relative mb-6">
+                  <div className="w-24 h-24 rounded-[28px] bg-white/[0.03] border border-white/[0.06] flex items-center justify-center">
+                    <MicIcon className="w-10 h-10 text-white/15" />
                   </div>
                 </div>
-                <p className="text-xl font-semibold text-white/30">Tap microphone to start</p>
-                <p className="text-sm mt-2 text-white/15">Speak in {sourceLangData?.name}</p>
+                <p className="text-base font-medium text-white/25">Tap the button to translate</p>
+                <p className="text-[13px] text-white/12 mt-1.5">Speak in {sourceLangData?.name}</p>
               </div>
             )}
 
             {/* Listening state */}
             {isListening && translations.length === 0 && !interimText && (
-              <div className="flex flex-col items-center justify-center py-16 animate-fade-in">
-                <div className="relative mb-10">
-                  {/* Outer rings */}
+              <div className="flex flex-col items-center justify-center py-20 animate-fade-in select-none">
+                <div className="relative mb-12">
+                  {/* Animated rings */}
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-40 h-40 rounded-full border border-red-500/10 animate-listen-ring-1" />
+                    <div className="w-36 h-36 rounded-full border border-white/[0.04] animate-ring-expand" />
                   </div>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-52 h-52 rounded-full border border-red-500/5 animate-listen-ring-2" />
+                    <div className="w-44 h-44 rounded-full border border-white/[0.03] animate-ring-expand" style={{ animationDelay: "0.8s" }} />
+                  </div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-52 h-52 rounded-full border border-white/[0.02] animate-ring-expand" style={{ animationDelay: "1.6s" }} />
                   </div>
 
                   {/* Center mic */}
-                  <div className="w-28 h-28 rounded-full bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center shadow-2xl shadow-red-500/30 animate-listen-breathe relative z-10">
-                    <svg className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-                    </svg>
+                  <div className="relative w-24 h-24 flex items-center justify-center">
+                    <div className="absolute inset-0 rounded-[24px] bg-gradient-to-br from-rose-500 to-red-600 shadow-2xl shadow-red-500/25 animate-mic-glow" />
+                    <MicIcon className="relative w-10 h-10 text-white drop-shadow-lg" />
                   </div>
                 </div>
 
-                <div className="text-center">
-                  <p className="text-2xl font-bold bg-gradient-to-r from-red-400 to-rose-400 bg-clip-text text-transparent">Listening...</p>
-                  <p className="text-sm text-white/30 mt-2">Speak in {sourceLangData?.name}</p>
-                </div>
+                <p className="text-lg font-semibold text-white/60 tracking-tight">Listening</p>
+                <p className="text-[13px] text-white/20 mt-1">Speak in {sourceLangData?.name}</p>
 
                 {/* Sound wave */}
-                <div className="flex items-center gap-[3px] mt-8 h-8">
-                  {[1,2,3,4,5,6,7,8,9].map((i) => (
-                    <div
-                      key={i}
-                      className="w-[3px] rounded-full bg-gradient-to-t from-red-500 to-rose-400 opacity-60 animate-eq-bar"
-                      style={{ animationDelay: `${i * 0.08}s`, animationDuration: `${0.4 + (i % 3) * 0.2}s` }}
-                    />
+                <div className="flex items-center gap-[2px] mt-8 h-6">
+                  {[0,1,2,3,4,5,6,7,8,9,10].map((i) => (
+                    <div key={i} className="w-[2px] rounded-full bg-white/20 animate-eq" style={{ animationDelay: `${i * 0.07}s`, animationDuration: `${0.35 + (i % 4) * 0.12}s` }} />
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Translation entries */}
+            {/* Interim */}
+            {interimText && (
+              <div className="rounded-2xl p-5 bg-white/[0.03] border border-white/[0.05] animate-fade-in">
+                <div className="flex items-center gap-2 mb-2.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                  <span className="text-[11px] text-white/25 font-medium uppercase tracking-widest">Listening</span>
+                </div>
+                <p className="text-[15px] text-white/25 italic leading-relaxed">{interimText}</p>
+              </div>
+            )}
+
+            {/* Translations */}
             {translations.map((entry, idx) => (
               <div
                 key={entry.id}
-                className="animate-fade-in-up glass-card rounded-2xl p-5 space-y-2 group hover:bg-white/[0.07] transition-colors"
-                style={{ animationDelay: `${Math.min(idx * 0.05, 0.3)}s` }}
+                className="rounded-2xl bg-white/[0.03] border border-white/[0.04] overflow-hidden animate-fade-in-up"
+                style={{ animationDelay: `${Math.min(idx * 0.04, 0.2)}s` }}
               >
-                <p className="text-white/40 text-sm leading-relaxed">{entry.original}</p>
-                <div className="w-8 h-[1px] bg-gradient-to-r from-violet-500/40 to-transparent mb-1" />
-                <p className="text-white text-lg font-semibold leading-relaxed">{entry.translated}</p>
+                <div className="px-5 pt-4 pb-3">
+                  <p className="text-[13px] text-white/30 leading-relaxed">{entry.original}</p>
+                </div>
+                <div className="h-[1px] bg-white/[0.04] mx-5" />
+                <div className="px-5 pt-3 pb-4">
+                  <p className="text-[16px] font-semibold text-white/90 leading-relaxed">{entry.translated}</p>
+                </div>
               </div>
             ))}
-
-            {/* Interim text */}
-            {interimText && (
-              <div className="glass-card rounded-2xl p-5 border border-white/5 animate-fade-in">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                  <span className="text-xs text-white/30 font-medium uppercase tracking-wider">Listening</span>
-                </div>
-                <p className="text-white/30 text-base italic leading-relaxed">{interimText}</p>
-              </div>
-            )}
           </div>
         </div>
       </main>
 
-      {/* Bottom bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 glass-bottom">
-        <div className="max-w-2xl mx-auto flex flex-col items-center pt-6 pb-8">
-          {/* Mic button */}
-          <button
-            onClick={toggleListening}
-            className={`relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-500 active:scale-90 ${
-              isListening
-                ? "bg-gradient-to-br from-red-500 to-rose-600 shadow-2xl shadow-red-500/40"
-                : "bg-white/10 hover:bg-white/15 border border-white/10"
-            }`}
-          >
+      {/* Bottom mic area */}
+      <div className="fixed bottom-0 inset-x-0 z-50 pointer-events-none">
+        <div className="absolute inset-0 bg-gradient-to-t from-[#09090b] via-[#09090b]/80 to-transparent" />
+        <div className="relative max-w-xl mx-auto flex flex-col items-center pt-12 pb-8 pointer-events-auto">
+          <button onClick={toggleListening} className="group relative">
+            {/* Rings */}
             {isListening && (
               <>
-                <span className="absolute inset-[-8px] rounded-full bg-red-500/20 animate-pulse-ring" />
-                <span className="absolute inset-[-16px] rounded-full bg-red-500/10 animate-pulse-ring" style={{ animationDelay: "0.5s" }} />
-                <span className="absolute inset-[-24px] rounded-full bg-red-500/5 animate-pulse-ring" style={{ animationDelay: "1s" }} />
+                <span className="absolute inset-0 rounded-full border border-red-500/20 animate-ring-fade" />
+                <span className="absolute inset-0 rounded-full border border-red-500/15 animate-ring-fade" style={{ animationDelay: "0.6s" }} />
+                <span className="absolute inset-0 rounded-full border border-red-500/10 animate-ring-fade" style={{ animationDelay: "1.2s" }} />
               </>
             )}
-            {isListening ? (
-              <svg className="relative w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <rect x="6" y="6" width="12" height="12" rx="2" />
-              </svg>
-            ) : (
-              <svg className="relative w-8 h-8 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-              </svg>
-            )}
+            <div className={`relative w-[72px] h-[72px] rounded-full flex items-center justify-center transition-all duration-500 ${
+              isListening
+                ? "bg-gradient-to-br from-rose-500 to-red-600 shadow-[0_0_40px_rgba(239,68,68,0.3)]"
+                : "bg-white/[0.07] hover:bg-white/[0.1] border border-white/[0.08] group-hover:border-white/[0.12]"
+            }`}>
+              {isListening ? (
+                <StopIcon className="w-7 h-7 text-white" />
+              ) : (
+                <MicIcon className="w-7 h-7 text-white/60 group-hover:text-white/80 transition-colors" />
+              )}
+            </div>
           </button>
 
-          {/* Status text */}
-          <div className="mt-4 h-6 flex items-center">
+          <div className="mt-4 h-5 flex items-center justify-center">
             {isListening ? (
-              <p className="text-sm text-white/40 font-medium animate-fade-in">
-                Listening in {sourceLangData?.name}
-              </p>
+              <div className="flex items-center gap-2 animate-fade-in">
+                <div className="flex items-center gap-[3px]">
+                  {[0,1,2].map((i) => (
+                    <div key={i} className="w-[2px] h-[2px] rounded-full bg-red-400 animate-dot-pulse" style={{ animationDelay: `${i * 0.2}s` }} />
+                  ))}
+                </div>
+                <span className="text-[13px] text-white/30 font-medium">Listening in {sourceLangData?.name}</span>
+              </div>
             ) : error ? (
-              <p className="text-sm text-red-400 font-medium animate-fade-in">{error}</p>
+              <span className="text-[13px] text-red-400/80 animate-fade-in">{error}</span>
             ) : (
-              <p className="text-sm text-white/20">Tap to translate</p>
+              <span className="text-[13px] text-white/15">Tap to translate</span>
             )}
           </div>
         </div>
@@ -340,24 +333,16 @@ export default function Home() {
 
       {/* Language picker */}
       {showLangPicker && (
-        <div
-          className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-end justify-center animate-fade-in"
-          onClick={() => setShowLangPicker(null)}
-        >
-          <div
-            className="w-full max-w-2xl glass-card rounded-t-3xl p-6 pb-10 animate-slide-up"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="w-10 h-1 bg-white/15 rounded-full mx-auto mb-6" />
-            <h3 className="text-xl font-bold mb-5">
+        <div className="fixed inset-0 z-[100] flex items-end justify-center animate-fade-in" onClick={() => setShowLangPicker(null)}>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div className="relative w-full max-w-xl rounded-t-[28px] p-6 pb-10 bg-[#141416] border-t border-white/[0.06] animate-slide-up" onClick={(e) => e.stopPropagation()}>
+            <div className="w-10 h-1 rounded-full bg-white/10 mx-auto mb-6" />
+            <h3 className="text-[17px] font-semibold mb-5 text-white/90">
               {showLangPicker === "source" ? "Translate from" : "Translate to"}
             </h3>
             <div className="grid grid-cols-3 gap-2.5">
               {LANGUAGES.map((lang) => {
-                const isSelected =
-                  showLangPicker === "source"
-                    ? lang.code === sourceLang
-                    : lang.code === targetLang;
+                const active = showLangPicker === "source" ? lang.code === sourceLang : lang.code === targetLang;
                 return (
                   <button
                     key={lang.code}
@@ -366,14 +351,14 @@ export default function Home() {
                       else setTargetLang(lang.code);
                       setShowLangPicker(null);
                     }}
-                    className={`flex flex-col items-center gap-2 p-4 rounded-2xl transition-all active:scale-95 ${
-                      isSelected
-                        ? "bg-gradient-to-br from-violet-500/20 to-blue-500/20 ring-1 ring-violet-500/30 shadow-lg shadow-violet-500/10"
-                        : "bg-white/5 hover:bg-white/8"
+                    className={`flex flex-col items-center gap-2 py-4 px-2 rounded-2xl transition-all active:scale-[0.95] ${
+                      active
+                        ? "bg-white/[0.08] border border-violet-500/30 shadow-lg shadow-violet-500/5"
+                        : "bg-white/[0.03] border border-transparent hover:bg-white/[0.06]"
                     }`}
                   >
-                    <span className="text-2xl">{lang.flag}</span>
-                    <span className="text-xs font-medium text-white/70">{lang.name}</span>
+                    <span className="text-[22px]">{lang.flag}</span>
+                    <span className="text-[12px] font-medium text-white/50">{lang.name}</span>
                   </button>
                 );
               })}
