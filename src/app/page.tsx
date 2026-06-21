@@ -73,6 +73,17 @@ export default function Home() {
     setTranslating(false);
   }, [translateText]);
 
+  const resumeIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const resumeAllMedia = useCallback(() => {
+    document.querySelectorAll("video, audio").forEach((el) => {
+      const media = el as HTMLMediaElement;
+      if (media.paused && !media.ended && media.readyState > 2) {
+        media.play().catch(() => {});
+      }
+    });
+  }, []);
+
   const startListening = useCallback(() => {
     setError(null);
     lastFinalRef.current = "";
@@ -114,11 +125,15 @@ export default function Home() {
       r.start();
       setIsListening(true);
       listeningRef.current = true;
+      resumeAllMedia();
+      if (resumeIntervalRef.current) clearInterval(resumeIntervalRef.current);
+      resumeIntervalRef.current = setInterval(resumeAllMedia, 800);
     } catch { setError("Could not start microphone"); }
-  }, [sourceLang, processTranscript]);
+  }, [sourceLang, processTranscript, resumeAllMedia]);
 
   const stopListening = useCallback(() => {
     listeningRef.current = false;
+    if (resumeIntervalRef.current) { clearInterval(resumeIntervalRef.current); resumeIntervalRef.current = null; }
     recognitionRef.current?.stop();
     recognitionRef.current = null;
     setIsListening(false);
@@ -129,7 +144,10 @@ export default function Home() {
     if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior: "smooth" });
   }, [translations]);
 
-  useEffect(() => () => { recognitionRef.current?.stop(); }, []);
+  useEffect(() => () => {
+    recognitionRef.current?.stop();
+    if (resumeIntervalRef.current) clearInterval(resumeIntervalRef.current);
+  }, []);
 
   return (
     <div className="h-dvh flex flex-col" style={{ background: "#09090b" }}>
