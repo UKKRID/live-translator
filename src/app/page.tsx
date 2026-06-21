@@ -77,12 +77,20 @@ export default function Home() {
     }
   }, [sourceLang, targetLang]);
 
+  const processingRef = useRef(false);
+
   const processTranscript = useCallback(async (text: string) => {
-    if (!text.trim()) return;
+    if (!text.trim() || processingRef.current) return;
+    processingRef.current = true;
     setTranslating(true);
-    const translated = await translateText(text);
-    setTranslations((prev) => [...prev, { id: ++idRef.current, original: text, translated }]);
+    try {
+      const translated = await translateText(text);
+      setTranslations((prev) => [...prev, { id: ++idRef.current, original: text, translated }]);
+    } catch {
+      setTranslations((prev) => [...prev, { id: ++idRef.current, original: text, translated: text }]);
+    }
     setTranslating(false);
+    processingRef.current = false;
   }, [translateText]);
 
   const cleanupAudio = useCallback(() => {
@@ -186,7 +194,7 @@ export default function Home() {
       if (!listeningRef.current || recorder.state !== "recording") return;
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-      recorder.stop();
+      try { recorder.stop(); } catch { return; }
       await new Promise<void>((resolve) => { recorder.onstop = () => resolve(); });
       if (chunks.length > 0) {
         const blob = new Blob(chunks, { type: "audio/webm" });
@@ -197,7 +205,7 @@ export default function Home() {
           } catch (e) { console.error("Whisper error:", e); }
         }
       }
-      if (listeningRef.current) {
+      if (listeningRef.current && displayStreamRef.current) {
         try { recorder.start(); } catch { /* ignore */ }
       }
     };
