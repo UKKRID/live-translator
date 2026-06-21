@@ -47,6 +47,9 @@ export default function Home() {
   const displayStreamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const resumeIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const wrappedElementsRef = useRef<WeakSet<HTMLMediaElement>>(new WeakSet());
 
   const srcLang = LANGUAGES.find((l) => l.code === sourceLang)!;
   const tgtLang = LANGUAGES.find((l) => l.code === targetLang)!;
@@ -97,6 +100,30 @@ export default function Home() {
     }
   }, []);
 
+  const clearResume = useCallback(() => {
+    if (resumeIntervalRef.current) {
+      clearInterval(resumeIntervalRef.current);
+      resumeIntervalRef.current = null;
+    }
+  }, []);
+
+  const aggressiveResumeFn = useRef(() => {});
+  const doStopRef = useRef<() => void>(() => {});
+
+  const aggressiveResume = useCallback(() => {
+    document.querySelectorAll("video, audio").forEach((el) => {
+      const m = el as HTMLMediaElement;
+      if (m.paused && !m.ended && m.readyState > 2) {
+        m.play().catch(() => {});
+      }
+    });
+    try {
+      if (audioCtxRef.current?.state === "suspended") audioCtxRef.current.resume();
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { aggressiveResumeFn.current = aggressiveResume; });
+
   const doStop = useCallback(() => {
     listeningRef.current = false;
     recognitionRef.current?.stop();
@@ -104,10 +131,10 @@ export default function Home() {
     setIsListening(false);
     setInterimText("");
     cleanupAudio();
-  }, [cleanupAudio]);
+    clearResume();
+  }, [cleanupAudio, clearResume]);
 
-  const stopRef = useRef(doStop);
-  useEffect(() => { stopRef.current = doStop; });
+  useEffect(() => { doStopRef.current = doStop; });
 
   const sendToWhisper = useCallback(async (blob: Blob): Promise<string> => {
     if (!apiKey) throw new Error("No API key");
@@ -143,15 +170,13 @@ export default function Home() {
       return;
     }
 
-    // Stop video track immediately — we only need audio
     stream.getVideoTracks().forEach((t) => t.stop());
-
     displayStreamRef.current = stream;
     listeningRef.current = true;
     setIsListening(true);
 
     stream.getAudioTracks()[0].onended = () => {
-      if (listeningRef.current) stopRef.current();
+      if (listeningRef.current) doStopRef.current();
     };
 
     const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
@@ -160,31 +185,19 @@ export default function Home() {
     const sendChunk = async () => {
       if (!listeningRef.current || recorder.state !== "recording") return;
       const chunks: Blob[] = [];
-      const origOnData = recorder.ondataavailable;
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-
       recorder.stop();
-      await new Promise<void>((resolve) => {
-        recorder.onstop = () => resolve();
-      });
-
+      await new Promise<void>((resolve) => { recorder.onstop = () => resolve(); });
       if (chunks.length > 0) {
         const blob = new Blob(chunks, { type: "audio/webm" });
         if (blob.size > 1000) {
           try {
             const text = await sendToWhisper(blob);
-            if (text.trim()) {
-              setInterimText("");
-              processTranscript(text);
-            }
-          } catch (e) {
-            console.error("Whisper error:", e);
-          }
+            if (text.trim()) { setInterimText(""); processTranscript(text); }
+          } catch (e) { console.error("Whisper error:", e); }
         }
       }
-
       if (listeningRef.current) {
-        recorder.ondataavailable = origOnData;
         try { recorder.start(); } catch { /* ignore */ }
       }
     };
@@ -197,6 +210,23 @@ export default function Home() {
   const startMic = useCallback(() => {
     setError(null);
     lastFinalRef.current = "";
+
+    // Hijack media elements through AudioContext
+    try {
+      if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
+      const ctx = audioCtxRef.current;
+      if (ctx.state === "suspended") ctx.resume();
+      document.querySelectorAll("video, audio").forEach((el) => {
+        const media = el as HTMLMediaElement;
+        if (wrappedElementsRef.current.has(media)) return;
+        try {
+          const source = ctx.createMediaElementSource(media);
+          source.connect(ctx.destination);
+          wrappedElementsRef.current.add(media);
+        } catch { /* already connected */ }
+      });
+    } catch { /* AudioContext not available */ }
+
     const API = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!API) { setError("Use Chrome or Safari"); return; }
 
@@ -221,11 +251,12 @@ export default function Home() {
         setError(`Error: ${e.error}`);
         setIsListening(false);
         listeningRef.current = false;
+        clearResume();
       }
     };
     r.onend = () => {
       if (listeningRef.current) {
-        try { r.start(); } catch { setIsListening(false); listeningRef.current = false; }
+        try { r.start(); } catch { setIsListening(false); listeningRef.current = false; clearResume(); }
       }
     };
 
@@ -234,8 +265,11 @@ export default function Home() {
       r.start();
       setIsListening(true);
       listeningRef.current = true;
+      aggressiveResume();
+      clearResume();
+      resumeIntervalRef.current = setInterval(() => aggressiveResumeFn.current(), 150);
     } catch { setError("Could not start microphone"); }
-  }, [sourceLang, processTranscript]);
+  }, [sourceLang, processTranscript, aggressiveResume, clearResume]);
 
   const startListening = useCallback(() => {
     if (mode === "tab") startTabAudio(); else startMic();
@@ -247,7 +281,11 @@ export default function Home() {
     if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior: "smooth" });
   }, [translations]);
 
-  useEffect(() => () => { recognitionRef.current?.stop(); cleanupAudio(); }, [cleanupAudio]);
+  useEffect(() => () => {
+    recognitionRef.current?.stop();
+    cleanupAudio();
+    clearResume();
+  }, [cleanupAudio, clearResume]);
 
   return (
     <div className="h-dvh flex flex-col" style={{ background: "#09090b" }}>
@@ -282,7 +320,6 @@ export default function Home() {
         </button>
       </div>
 
-      {/* Mode toggle */}
       <div className="shrink-0 px-5 py-2 flex gap-2" style={{ background: "rgba(9,9,11,0.5)", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
         <button onClick={() => setMode("tab")} className="flex-1 h-8 rounded-lg text-[11px] font-medium transition-all" style={{
           background: mode === "tab" ? "rgba(124,58,237,0.2)" : "rgba(255,255,255,0.03)",
@@ -324,7 +361,7 @@ export default function Home() {
             </div>
             <p className="text-base font-semibold" style={{ color: "rgba(255,255,255,0.45)" }}>Listening...</p>
             <p className="text-[11px] mt-1" style={{ color: "rgba(255,255,255,0.15)" }}>
-              {mode === "tab" ? "Capturing tab audio (YouTube won't pause)" : "Speak into mic"}
+              {mode === "tab" ? "Capturing tab audio" : "Speak into mic"}
             </p>
             <div className="flex items-end gap-[3px] mt-5 h-6">
               {[0,1,2,3,4,5,6,7,8].map((i) => (
@@ -396,7 +433,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Language picker */}
       {showLangPicker && (
         <div className="absolute inset-0 z-50 flex items-end" onClick={() => setShowLangPicker(null)}>
           <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }} />
@@ -426,7 +462,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* Settings */}
       {showSettings && (
         <div className="absolute inset-0 z-50 flex items-end" onClick={() => setShowSettings(false)}>
           <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }} />
