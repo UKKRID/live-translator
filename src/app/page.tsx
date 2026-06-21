@@ -38,6 +38,8 @@ export default function Home() {
   const lastFinalRef = useRef("");
   const idRef = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const displayStreamRef = useRef<MediaStream | null>(null);
+  const replayAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const srcLang = LANGUAGES.find((l) => l.code === sourceLang)!;
   const tgtLang = LANGUAGES.find((l) => l.code === targetLang)!;
@@ -73,25 +75,81 @@ export default function Home() {
     setTranslating(false);
   }, [translateText]);
 
-  const resumeIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const cleanupAudio = useCallback(() => {
+    if (replayAudioRef.current) {
+      replayAudioRef.current.pause();
+      replayAudioRef.current.srcObject = null;
+      replayAudioRef.current.remove();
+      replayAudioRef.current = null;
+    }
+    if (displayStreamRef.current) {
+      displayStreamRef.current.getTracks().forEach((t) => t.stop());
+      displayStreamRef.current = null;
+    }
+  }, []);
 
-  const resumeAllMedia = useCallback(() => {
+  const resumeMedia = useCallback(() => {
     document.querySelectorAll("video, audio").forEach((el) => {
-      const media = el as HTMLMediaElement;
-      if (media.paused && !media.ended && media.readyState > 2) {
-        media.play().catch(() => {});
+      const m = el as HTMLMediaElement;
+      if (m !== replayAudioRef.current && m.paused && !m.ended && m.readyState > 2) {
+        m.play().catch(() => {});
       }
     });
   }, []);
 
-  const startListening = useCallback(() => {
+  const doStop = useCallback(() => {
+    listeningRef.current = false;
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setIsListening(false);
+    setInterimText("");
+    cleanupAudio();
+  }, [cleanupAudio]);
+
+  const stopRef = useRef(doStop);
+
+  useEffect(() => { stopRef.current = doStop; });
+
+  const startListening = useCallback(async () => {
     setError(null);
     lastFinalRef.current = "";
+    cleanupAudio();
+
+    let stream: MediaStream | null = null;
+    let useDisplayAudio = false;
+
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false } as MediaTrackConstraints,
+        video: false,
+      });
+      useDisplayAudio = true;
+    } catch {
+      useDisplayAudio = false;
+    }
+
+    if (useDisplayAudio && stream) {
+      displayStreamRef.current = stream;
+
+      const audio = document.createElement("audio");
+      audio.srcObject = stream;
+      audio.autoplay = true;
+      audio.volume = 0.6;
+      audio.setAttribute("playsinline", "");
+      document.body.appendChild(audio);
+      replayAudioRef.current = audio;
+
+      stream.getAudioTracks()[0].onended = () => {
+        if (listeningRef.current) stopRef.current();
+      };
+    }
+
     const API = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!API) {
-      setError("Use Chrome or Safari for speech recognition");
+      setError("Use Chrome or Safari");
       return;
     }
+
     const r = new API();
     r.continuous = true;
     r.interimResults = true;
@@ -110,48 +168,42 @@ export default function Home() {
     };
     r.onerror = (e) => {
       if (e.error !== "no-speech" && e.error !== "aborted") {
-        setError(`Speech error: ${e.error}`);
+        setError(`Error: ${e.error}`);
         setIsListening(false);
         listeningRef.current = false;
+        cleanupAudio();
       }
     };
     r.onend = () => {
       if (listeningRef.current) {
-        try { r.start(); } catch { setIsListening(false); listeningRef.current = false; }
+        try { r.start(); } catch { setIsListening(false); listeningRef.current = false; cleanupAudio(); }
+      } else {
+        cleanupAudio();
       }
     };
+
     recognitionRef.current = r;
     try {
       r.start();
       setIsListening(true);
       listeningRef.current = true;
-      resumeAllMedia();
-      if (resumeIntervalRef.current) clearInterval(resumeIntervalRef.current);
-      resumeIntervalRef.current = setInterval(resumeAllMedia, 800);
-    } catch { setError("Could not start microphone"); }
-  }, [sourceLang, processTranscript, resumeAllMedia]);
+      resumeMedia();
+    } catch {
+      setError("Could not start");
+      cleanupAudio();
+    }
+  }, [sourceLang, processTranscript, cleanupAudio, resumeMedia]);
 
-  const stopListening = useCallback(() => {
-    listeningRef.current = false;
-    if (resumeIntervalRef.current) { clearInterval(resumeIntervalRef.current); resumeIntervalRef.current = null; }
-    recognitionRef.current?.stop();
-    recognitionRef.current = null;
-    setIsListening(false);
-    setInterimText("");
-  }, []);
+  const stopListening = doStop;
 
   useEffect(() => {
     if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior: "smooth" });
   }, [translations]);
 
-  useEffect(() => () => {
-    recognitionRef.current?.stop();
-    if (resumeIntervalRef.current) clearInterval(resumeIntervalRef.current);
-  }, []);
+  useEffect(() => () => { recognitionRef.current?.stop(); cleanupAudio(); }, [cleanupAudio]);
 
   return (
     <div className="h-dvh flex flex-col" style={{ background: "#09090b" }}>
-      {/* HEADER */}
       <header className="shrink-0 px-5 h-14 flex items-center justify-between" style={{ background: "rgba(9,9,11,0.9)", borderBottom: "1px solid rgba(255,255,255,0.06)", backdropFilter: "blur(20px)" }}>
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg, #7c3aed, #4f46e5)" }}>
@@ -164,7 +216,6 @@ export default function Home() {
         )}
       </header>
 
-      {/* LANG BAR */}
       <div className="shrink-0 px-5 py-3 flex items-center gap-2" style={{ background: "rgba(9,9,11,0.7)", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
         <button onClick={() => setShowLangPicker("source")} className="flex-1 h-11 rounded-xl flex items-center justify-center gap-2.5" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
           <span className="text-lg">{srcLang.flag}</span>
@@ -179,19 +230,17 @@ export default function Home() {
         </button>
       </div>
 
-      {/* SCROLLABLE CONTENT */}
       <div className="flex-1 overflow-y-auto px-5 py-4" style={{ scrollbarWidth: "none" }}>
-        {/* Empty state */}
         {translations.length === 0 && !isListening && !interimText && (
           <div className="flex flex-col items-center justify-center pt-24 pb-8">
             <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-5" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}>
               <svg className="w-8 h-8" style={{ color: "rgba(255,255,255,0.1)" }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
             </div>
             <p className="text-sm" style={{ color: "rgba(255,255,255,0.18)" }}>Tap the mic to start</p>
+            <p className="text-[11px] mt-1" style={{ color: "rgba(255,255,255,0.08)" }}>Select tab audio when prompted</p>
           </div>
         )}
 
-        {/* Listening state */}
         {isListening && translations.length === 0 && !interimText && (
           <div className="flex flex-col items-center justify-center pt-20 pb-8">
             <div className="relative mb-8">
@@ -210,7 +259,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Interim */}
         {interimText && (
           <div className="mb-3 px-4 py-3 rounded-xl" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}>
             <div className="flex items-center gap-2 mb-1.5">
@@ -221,7 +269,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Translations */}
         {translations.map((entry) => (
           <div key={entry.id} className="mb-3 rounded-xl overflow-hidden anim-card" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}>
             <div className="px-4 pt-3 pb-2">
@@ -240,11 +287,9 @@ export default function Home() {
             <span className="text-[11px]" style={{ color: "rgba(255,255,255,0.15)" }}>Translating...</span>
           </div>
         )}
-
         <div ref={bottomRef} />
       </div>
 
-      {/* MIC BAR — not fixed, just at bottom of flex layout */}
       <div className="shrink-0 px-5 pb-8 pt-4 flex flex-col items-center" style={{ background: "linear-gradient(to top, #09090b 60%, transparent)" }}>
         <button onClick={() => { if (isListening) stopListening(); else startListening(); }} className="relative">
           {isListening && (
@@ -276,7 +321,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* LANGUAGE PICKER */}
       {showLangPicker && (
         <div className="absolute inset-0 z-50 flex items-end" onClick={() => setShowLangPicker(null)}>
           <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }} />
