@@ -32,6 +32,12 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [showLangPicker, setShowLangPicker] = useState<"source" | "target" | null>(null);
   const [translating, setTranslating] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [apiKey, setApiKey] = useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("openai_api_key") || "";
+    return "";
+  });
+  const [mode, setMode] = useState<"mic" | "tab">("tab");
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const listeningRef = useRef(false);
@@ -39,7 +45,8 @@ export default function Home() {
   const idRef = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const displayStreamRef = useRef<MediaStream | null>(null);
-  const replayAudioRef = useRef<HTMLAudioElement | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const srcLang = LANGUAGES.find((l) => l.code === sourceLang)!;
   const tgtLang = LANGUAGES.find((l) => l.code === targetLang)!;
@@ -76,25 +83,18 @@ export default function Home() {
   }, [translateText]);
 
   const cleanupAudio = useCallback(() => {
-    if (replayAudioRef.current) {
-      replayAudioRef.current.pause();
-      replayAudioRef.current.srcObject = null;
-      replayAudioRef.current.remove();
-      replayAudioRef.current = null;
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      recorderRef.current.stop();
     }
+    recorderRef.current = null;
     if (displayStreamRef.current) {
       displayStreamRef.current.getTracks().forEach((t) => t.stop());
       displayStreamRef.current = null;
     }
-  }, []);
-
-  const resumeMedia = useCallback(() => {
-    document.querySelectorAll("video, audio").forEach((el) => {
-      const m = el as HTMLMediaElement;
-      if (m !== replayAudioRef.current && m.paused && !m.ended && m.readyState > 2) {
-        m.play().catch(() => {});
-      }
-    });
+    if (recordIntervalRef.current) {
+      clearInterval(recordIntervalRef.current);
+      recordIntervalRef.current = null;
+    }
   }, []);
 
   const doStop = useCallback(() => {
@@ -107,48 +107,95 @@ export default function Home() {
   }, [cleanupAudio]);
 
   const stopRef = useRef(doStop);
-
   useEffect(() => { stopRef.current = doStop; });
 
-  const startListening = useCallback(async () => {
+  const sendToWhisper = useCallback(async (blob: Blob): Promise<string> => {
+    if (!apiKey) throw new Error("No API key");
+    const formData = new FormData();
+    formData.append("file", blob, "audio.webm");
+    formData.append("model", "whisper-1");
+    formData.append("language", sourceLang);
+    const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: formData,
+    });
+    if (!res.ok) throw new Error(`Whisper API error: ${res.status}`);
+    const data = await res.json();
+    return data.text || "";
+  }, [apiKey, sourceLang]);
+
+  const startTabAudio = useCallback(async () => {
     setError(null);
-    lastFinalRef.current = "";
-    cleanupAudio();
-
-    let stream: MediaStream | null = null;
-    let useDisplayAudio = false;
-
-    try {
-      stream = await navigator.mediaDevices.getDisplayMedia({
-        audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false } as MediaTrackConstraints,
-        video: false,
-      });
-      useDisplayAudio = true;
-    } catch {
-      useDisplayAudio = false;
-    }
-
-    if (useDisplayAudio && stream) {
-      displayStreamRef.current = stream;
-
-      const audio = document.createElement("audio");
-      audio.srcObject = stream;
-      audio.autoplay = true;
-      audio.volume = 0.6;
-      audio.setAttribute("playsinline", "");
-      document.body.appendChild(audio);
-      replayAudioRef.current = audio;
-
-      stream.getAudioTracks()[0].onended = () => {
-        if (listeningRef.current) stopRef.current();
-      };
-    }
-
-    const API = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!API) {
-      setError("Use Chrome or Safari");
+    if (!apiKey) {
+      setError("Set OpenAI API key in Settings first");
       return;
     }
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        audio: { channelCount: 1, sampleRate: 16000 } as MediaTrackConstraints,
+        video: false,
+      });
+    } catch {
+      setError("Permission denied — allow tab audio");
+      return;
+    }
+
+    displayStreamRef.current = stream;
+    listeningRef.current = true;
+    setIsListening(true);
+
+    stream.getAudioTracks()[0].onended = () => {
+      if (listeningRef.current) stopRef.current();
+    };
+
+    const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+    recorderRef.current = recorder;
+
+    const sendChunk = async () => {
+      if (!listeningRef.current || recorder.state !== "recording") return;
+      const chunks: Blob[] = [];
+      const origOnData = recorder.ondataavailable;
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+      recorder.stop();
+      await new Promise<void>((resolve) => {
+        recorder.onstop = () => resolve();
+      });
+
+      if (chunks.length > 0) {
+        const blob = new Blob(chunks, { type: "audio/webm" });
+        if (blob.size > 1000) {
+          try {
+            const text = await sendToWhisper(blob);
+            if (text.trim()) {
+              setInterimText("");
+              processTranscript(text);
+            }
+          } catch (e) {
+            console.error("Whisper error:", e);
+          }
+        }
+      }
+
+      if (listeningRef.current) {
+        recorder.ondataavailable = origOnData;
+        try { recorder.start(); } catch { /* ignore */ }
+      }
+    };
+
+    recorder.ondataavailable = () => {};
+    recorder.start();
+    recordIntervalRef.current = setInterval(sendChunk, 3000);
+  }, [apiKey, sendToWhisper, processTranscript]);
+
+  const startMic = useCallback(() => {
+    setError(null);
+    lastFinalRef.current = "";
+    const API = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!API) { setError("Use Chrome or Safari"); return; }
 
     const r = new API();
     r.continuous = true;
@@ -171,14 +218,11 @@ export default function Home() {
         setError(`Error: ${e.error}`);
         setIsListening(false);
         listeningRef.current = false;
-        cleanupAudio();
       }
     };
     r.onend = () => {
       if (listeningRef.current) {
-        try { r.start(); } catch { setIsListening(false); listeningRef.current = false; cleanupAudio(); }
-      } else {
-        cleanupAudio();
+        try { r.start(); } catch { setIsListening(false); listeningRef.current = false; }
       }
     };
 
@@ -187,12 +231,12 @@ export default function Home() {
       r.start();
       setIsListening(true);
       listeningRef.current = true;
-      resumeMedia();
-    } catch {
-      setError("Could not start");
-      cleanupAudio();
-    }
-  }, [sourceLang, processTranscript, cleanupAudio, resumeMedia]);
+    } catch { setError("Could not start microphone"); }
+  }, [sourceLang, processTranscript]);
+
+  const startListening = useCallback(() => {
+    if (mode === "tab") startTabAudio(); else startMic();
+  }, [mode, startTabAudio, startMic]);
 
   const stopListening = doStop;
 
@@ -211,9 +255,14 @@ export default function Home() {
           </div>
           <span className="text-sm font-semibold" style={{ color: "rgba(255,255,255,0.9)" }}>Live Translator</span>
         </div>
-        {translations.length > 0 && (
-          <button onClick={() => { setTranslations([]); setInterimText(""); }} className="text-xs px-3 py-1 rounded-full" style={{ color: "rgba(255,255,255,0.3)" }}>Clear</button>
-        )}
+        <div className="flex items-center gap-2">
+          {translations.length > 0 && (
+            <button onClick={() => { setTranslations([]); setInterimText(""); }} className="text-xs px-3 py-1 rounded-full" style={{ color: "rgba(255,255,255,0.3)" }}>Clear</button>
+          )}
+          <button onClick={() => setShowSettings(true)} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(255,255,255,0.05)" }}>
+            <svg className="w-4 h-4" style={{ color: "rgba(255,255,255,0.4)" }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+          </button>
+        </div>
       </header>
 
       <div className="shrink-0 px-5 py-3 flex items-center gap-2" style={{ background: "rgba(9,9,11,0.7)", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
@@ -230,19 +279,39 @@ export default function Home() {
         </button>
       </div>
 
+      {/* Mode toggle */}
+      <div className="shrink-0 px-5 py-2 flex gap-2" style={{ background: "rgba(9,9,11,0.5)", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+        <button onClick={() => setMode("tab")} className="flex-1 h-8 rounded-lg text-[11px] font-medium transition-all" style={{
+          background: mode === "tab" ? "rgba(124,58,237,0.2)" : "rgba(255,255,255,0.03)",
+          color: mode === "tab" ? "rgba(167,139,250,1)" : "rgba(255,255,255,0.3)",
+          border: mode === "tab" ? "1px solid rgba(124,58,237,0.3)" : "1px solid transparent",
+        }}>Tab Audio</button>
+        <button onClick={() => setMode("mic")} className="flex-1 h-8 rounded-lg text-[11px] font-medium transition-all" style={{
+          background: mode === "mic" ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.03)",
+          color: mode === "mic" ? "rgba(248,113,113,1)" : "rgba(255,255,255,0.3)",
+          border: mode === "mic" ? "1px solid rgba(239,68,68,0.3)" : "1px solid transparent",
+        }}>Microphone</button>
+      </div>
+
       <div className="flex-1 overflow-y-auto px-5 py-4" style={{ scrollbarWidth: "none" }}>
         {translations.length === 0 && !isListening && !interimText && (
-          <div className="flex flex-col items-center justify-center pt-24 pb-8">
+          <div className="flex flex-col items-center justify-center pt-20 pb-8">
             <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-5" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}>
               <svg className="w-8 h-8" style={{ color: "rgba(255,255,255,0.1)" }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
             </div>
-            <p className="text-sm" style={{ color: "rgba(255,255,255,0.18)" }}>Tap the mic to start</p>
-            <p className="text-[11px] mt-1" style={{ color: "rgba(255,255,255,0.08)" }}>Select tab audio when prompted</p>
+            <p className="text-sm" style={{ color: "rgba(255,255,255,0.18)" }}>
+              {mode === "tab" ? "Tap mic → select YouTube tab audio" : "Tap mic to start"}
+            </p>
+            {mode === "tab" && !apiKey && (
+              <p className="text-[11px] mt-2 px-6 text-center" style={{ color: "rgba(239,68,68,0.5)" }}>
+                ⚠ OpenAI API key required — tap ⚙ to set
+              </p>
+            )}
           </div>
         )}
 
         {isListening && translations.length === 0 && !interimText && (
-          <div className="flex flex-col items-center justify-center pt-20 pb-8">
+          <div className="flex flex-col items-center justify-center pt-16 pb-8">
             <div className="relative mb-8">
               <div className="absolute inset-0 flex items-center justify-center"><div className="w-32 h-32 rounded-full anim-ring" style={{ border: "1px solid rgba(255,255,255,0.05)" }} /></div>
               <div className="absolute inset-0 flex items-center justify-center"><div className="w-44 h-44 rounded-full anim-ring" style={{ border: "1px solid rgba(255,255,255,0.03)", animationDelay: "1s" }} /></div>
@@ -251,6 +320,9 @@ export default function Home() {
               </div>
             </div>
             <p className="text-base font-semibold" style={{ color: "rgba(255,255,255,0.45)" }}>Listening...</p>
+            <p className="text-[11px] mt-1" style={{ color: "rgba(255,255,255,0.15)" }}>
+              {mode === "tab" ? "Capturing tab audio (YouTube won't pause)" : "Speak into mic"}
+            </p>
             <div className="flex items-end gap-[3px] mt-5 h-6">
               {[0,1,2,3,4,5,6,7,8].map((i) => (
                 <div key={i} className="w-[2px] rounded-full anim-eq" style={{ background: "rgba(255,255,255,0.15)", animationDelay: `${i * 0.08}s`, animationDuration: `${0.3 + (i % 3) * 0.15}s` }} />
@@ -321,6 +393,7 @@ export default function Home() {
         </div>
       </div>
 
+      {/* Language picker */}
       {showLangPicker && (
         <div className="absolute inset-0 z-50 flex items-end" onClick={() => setShowLangPicker(null)}>
           <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }} />
@@ -346,6 +419,34 @@ export default function Home() {
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings */}
+      {showSettings && (
+        <div className="absolute inset-0 z-50 flex items-end" onClick={() => setShowSettings(false)}>
+          <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }} />
+          <div className="relative w-full rounded-t-2xl p-5 pb-8 anim-slide" style={{ background: "#141416", border: "1px solid rgba(255,255,255,0.06)", borderBottom: "none" }} onClick={(e) => e.stopPropagation()}>
+            <div className="w-10 h-1 rounded-full mx-auto mb-5" style={{ background: "rgba(255,255,255,0.08)" }} />
+            <h3 className="text-sm font-semibold mb-4" style={{ color: "rgba(255,255,255,0.7)" }}>Settings</h3>
+            <div className="mb-4">
+              <label className="text-[11px] font-medium block mb-2" style={{ color: "rgba(255,255,255,0.4)" }}>OpenAI API Key (for Tab Audio mode)</label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => { setApiKey(e.target.value); localStorage.setItem("openai_api_key", e.target.value); }}
+                placeholder="sk-..."
+                className="w-full h-11 px-4 rounded-xl text-sm outline-none"
+                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.8)" }}
+              />
+              <p className="text-[10px] mt-2" style={{ color: "rgba(255,255,255,0.2)" }}>
+                Used for Whisper STT. Get key at platform.openai.com
+              </p>
+            </div>
+            <button onClick={() => setShowSettings(false)} className="w-full h-10 rounded-xl text-sm font-medium" style={{ background: "rgba(124,58,237,0.2)", color: "rgba(167,139,250,1)", border: "1px solid rgba(124,58,237,0.3)" }}>
+              Done
+            </button>
           </div>
         </div>
       )}
