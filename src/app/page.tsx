@@ -136,12 +136,15 @@ export default function Home() {
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
         audio: { channelCount: 1, sampleRate: 16000 } as MediaTrackConstraints,
-        video: false,
+        video: true,
       });
     } catch {
       setError("Permission denied — allow tab audio");
       return;
     }
+
+    // Stop video track immediately — we only need audio
+    stream.getVideoTracks().forEach((t) => t.stop());
 
     displayStreamRef.current = stream;
     listeningRef.current = true;
