@@ -1,36 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Live Translator
 
-## Getting Started
+Real-time voice translation app built with Next.js, React, and Tailwind CSS.
 
-First, run the development server:
+## Features
 
+- **Tab Audio Mode**: Capture audio from browser tabs (YouTube, etc.) and transcribe with OpenAI Whisper
+- **Microphone Mode**: Real-time speech recognition using Web Speech API
+- **Multi-language Support**: Auto-detect, Thai, English, Japanese, Korean, Chinese, Spanish, French, German, Vietnamese, Indonesian, Malay, Arabic
+- **Instant Translation**: Translates recognized text using MyMemory API with Google Translate fallback
+
+## Setup
+
+1. Install dependencies:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Copy `.env.example` to `.env.local` and add your OpenAI API key:
+```bash
+cp .env.example .env.local
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Get your API key from [OpenAI Platform](https://platform.openai.com/api-keys)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. Run the development server:
+```bash
+npm run dev
+```
 
-## Learn More
+5. Open [http://localhost:3000](http://localhost:3000)
 
-To learn more about Next.js, take a look at the following resources:
+## Environment Variables
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENAI_API_KEY` | Yes (for Tab Audio) | Your OpenAI API key for Whisper STT |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Tech Stack
 
-## Deploy on Vercel
+- **Framework**: Next.js 16 with App Router
+- **Styling**: Tailwind CSS v4
+- **Language**: TypeScript
+- **Speech Recognition**: Web Speech API (Microphone mode) / OpenAI Whisper API (Tab Audio mode)
+- **Translation**: MyMemory API with Google Translate fallback
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Architecture
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src/
+├── app/
+│   ├── api/whisper/route.ts    # Server-side proxy for OpenAI Whisper
+│   ├── globals.css             # Global styles and animations
+│   ├── layout.tsx              # Root layout
+│   └── page.tsx                # Main page component
+├── components/
+│   ├── Header.tsx              # App header with logo and settings
+│   ├── LanguageBar.tsx         # Language selection bar
+│   ├── LanguagePicker.tsx      # Language picker modal
+│   ├── MicButton.tsx           # Microphone toggle button
+│   ├── ModeToggle.tsx          # Tab Audio / Microphone switcher
+│   ├── SettingsModal.tsx       # Settings modal
+│   └── TranslationContent.tsx  # Translation list and status display
+└── lib/
+    ├── types.ts                # TypeScript types and constants
+    └── useTranslator.ts        # Custom hook for translation logic
+```
+
+## Security
+
+- API keys are stored server-side only (never exposed to the client)
+- Rate limiting applied to Whisper API endpoint
+- All audio processing happens through secure server-side proxy
