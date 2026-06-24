@@ -8,7 +8,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Live Translator",
+  title: "Live Translator for Mobile 📱",
   description: "Real-time voice translation",
 };
 
