@@ -19,7 +19,7 @@ export async function POST(req: Request) {
     case 'checkout.session.completed': {
       const session = event.data.object as Stripe.Checkout.Session
       const userId = session.metadata?.userId
-      if (userId) {
+      if (userId && prisma) {
         await prisma.subscription.upsert({
           where: { userId },
           update: {
@@ -39,21 +39,26 @@ export async function POST(req: Request) {
     }
     case 'customer.subscription.updated': {
       const subscription = event.data.object as Stripe.Subscription
-      await prisma.subscription.updateMany({
-        where: { stripeSubId: subscription.id },
-        data: {
-          status: subscription.status === 'active' ? 'ACTIVE' : 'CANCELED',
-          currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-        },
-      })
+      const periodEnd = subscription.items?.data?.[0]?.current_period_end
+      if (prisma) {
+        await prisma.subscription.updateMany({
+          where: { stripeSubId: subscription.id },
+          data: {
+            status: subscription.status === 'active' ? 'ACTIVE' : 'CANCELED',
+            currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
+          },
+        })
+      }
       break
     }
     case 'customer.subscription.deleted': {
       const subscription = event.data.object as Stripe.Subscription
-      await prisma.subscription.updateMany({
-        where: { stripeSubId: subscription.id },
-        data: { status: 'CANCELED', plan: 'FREE' },
-      })
+      if (prisma) {
+        await prisma.subscription.updateMany({
+          where: { stripeSubId: subscription.id },
+          data: { status: 'CANCELED', plan: 'FREE' },
+        })
+      }
       break
     }
   }

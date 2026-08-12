@@ -1,3 +1,5 @@
+export type Mode = "mic" | "tab";
+
 export interface TranslationEntry {
   id: number;
   original: string;

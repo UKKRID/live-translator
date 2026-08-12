@@ -1,7 +1,25 @@
 import { prisma } from './prisma'
 
 export async function getUser() {
-  // TODO: Replace with real auth (e.g., NextAuth, Clerk, etc.)
-  // For now, returns null (unauthenticated)
-  return null
+  if (!prisma) return null
+  
+  try {
+    let user = await prisma.user.findFirst({
+      include: { subscription: true }
+    })
+    
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email: 'demo@livetranslator.app',
+          name: 'Demo User',
+        },
+        include: { subscription: true }
+      })
+    }
+    
+    return user
+  } catch {
+    return null
+  }
 }

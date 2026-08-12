@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUser } from '@/lib/auth';
-import { checkQuota, logUsage } from '@/lib/usage';
 
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_MAX = 30;
@@ -20,20 +18,6 @@ function checkRateLimit(ip: string): boolean {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await getUser();
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const quota = await checkQuota(user.id, 'whisper');
-    if (!quota.allowed) {
-      return NextResponse.json({ 
-        error: 'Quota exceeded', 
-        remaining: quota.remaining,
-        upgradeUrl: '/pricing'
-      }, { status: 429 });
-    }
-
     const ip = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "unknown";
 
     if (!checkRateLimit(ip)) {
@@ -59,7 +43,6 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await res.json();
-    await logUsage(user.id, 'whisper');
 
     return NextResponse.json(data);
   } catch (error) {
